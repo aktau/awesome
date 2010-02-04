@@ -449,7 +449,8 @@ timer15sec:add_signal('timeout', function() thermalwidget.text = thermal() end)
 timer15sec:start()
 timer15sec:emit_signal('timeout')
 
-timer10sec = timer { timeout = 10 }timer10sec:add_signal('timeout', function() cpuwidget.text = cpu() end)
+timer10sec = timer { timeout = 10 }
+timer10sec:add_signal('timeout', function() cpuwidget.text = cpu() end)
 timer10sec:start()
 timer10sec:emit_signal('timeout')
 
