@@ -1,6 +1,7 @@
 -------------------------------------------------------------------------------
--- @file awesomerc.lua
--- @author Gigamo &lt;gigamo@gmail.com&gt;
+-- @file rc.lua
+-- @author Gigamo gigamo@gmail.com
+-- @author Aktau ?@?.?
 -------------------------------------------------------------------------------
 
 -- {{{1 Tables
@@ -39,25 +40,19 @@ settings.layouts =
 
 -- {{{1 Tags
 
-tags.settings = {
-    { name = 'term', layout = settings.layouts[1]  },
-    { name = 'web',  layout = settings.layouts[3]  },
-    { name = 'dev',  layout = settings.layouts[1]  },
-    { name = 'im',   layout = settings.layouts[1], mwfact = 0.13 },
-    { name = 'misc ', layout = settings.layouts[5]  },
+tags = {
+	names  = { 'term', 'web', 'dev', 'im', 'misc', 'media' },
+	layout = { settings.layouts[1], settings.layouts[3], settings.layouts[1], settings.layouts[1], settings.layouts[5], settings.layouts[3] }
 }
 
 for s = 1, screen.count() do
-    tags[s] = {}
-    for i, v in ipairs(tags.settings) do
-        tags[s][i] = tag({ name = v.name })
-        tags[s][i].screen = s
-        awful.tag.setproperty(tags[s][i], 'layout', v.layout)
-        awful.tag.setproperty(tags[s][i], 'mwfact', v.mwfact)
-        awful.tag.setproperty(tags[s][i], 'hide',   v.hide)
-    end
-    tags[s][1].selected = true
+    tags[s] = awful.tag(tags.names, s, tags.layout)
+
+	-- special treatment for the 'im' tag
+    awful.tag.setproperty(tags[s][4], 'mwfact', 0.13)
 end
+
+-- }}}
 
 -- {{{1 Widgets
 
@@ -66,6 +61,7 @@ cpuwidget = widget({ type = 'textbox', name = 'cpuwidget' })
 thermalwidget = widget({ type = 'textbox', name = 'thermalwidget' })
 memwidget     = widget({ type = 'textbox', name = 'memwidget' })
 batwidget     = widget({ type = 'textbox', name = 'batwidget' })
+diskwidget     = widget({ type = 'textbox', name = 'diskwidget' })
 clockwidget   = awful.widget.textclock({ align = 'right' })
 
 taglist.buttons = awful.util.table.join(
@@ -73,7 +69,7 @@ taglist.buttons = awful.util.table.join(
     awful.button({ }, 3, awful.tag.viewtoggle),
     awful.button({ settings.modkey }, 1, awful.client.movetotag),
     awful.button({ settings.modkey }, 3, awful.client.toggletag)
-    )
+)
 
 for s = 1, screen.count() do
     promptbox[s] = awful.widget.prompt({ layout = awful.widget.layout.horizontal.leftright })
@@ -101,6 +97,7 @@ for s = 1, screen.count() do
         },
         systray,
         clockwidget,
+        diskwidget,
         batwidget,
         memwidget,
         thermalwidget,
@@ -317,6 +314,43 @@ function cpu()
     return spacer..freq[0]..'MHz ('..gov[0]..')'..set_fg(beautiful.fg_focus, ' | ')
 end
 
+function diskspace()
+	local infotable = {}
+    local partitions = io.popen('df -kTh')
+    local formatstring = "%s %s: %s of %s (%s)" -- former name used/total percentage
+    local returnstring = ""
+
+    if partitions then
+        for line in partitions:lines() do
+			-- print("{ LINE = ", line, " }")
+
+			table.insert(infotable, {})
+
+			for data in line:gmatch("%S+") do
+				if ((#infotable[#infotable] == 0) and (data == "none" or data == "Filesystem" or data == "udev")) then
+					table.remove(infotable)
+					break
+				end
+
+				table.insert(infotable[#infotable], data)
+			end
+        end
+
+        partitions:close()
+    end
+
+    for drivenumber, driveinfo in ipairs(infotable) do
+		-- print("{ DRIVENUMBER = ", drivenumber, " }", "{ DRIVEINFO = ", driveinfo, ", ", #driveinfo, " }")
+		-- for k,v in ipairs(driveinfo) do print("QUE!!: ",k,v) end
+
+		returnstring = string.format(formatstring, returnstring, driveinfo[1], driveinfo[4], driveinfo[3], driveinfo[6])
+		returnstring = returnstring .. set_fg(beautiful.fg_focus, ' | ')
+	end
+
+	return returnstring
+    -- return temperature..'°C'..set_fg(beautiful.fg_focus, ' | ')
+end
+
 function battery(id)
 	local index, color = 0, ''
     local palette =
@@ -355,6 +389,7 @@ end
 
 function memory()
     local memfile = io.open('/proc/meminfo')
+
     if memfile then
         for line in memfile:lines() do
             if line:match("^MemTotal.*") then
@@ -367,8 +402,10 @@ function memory()
                 mem_cached = math.floor(tonumber(line:match("(%d+)")) / 1024)
             end
         end
+
         memfile:close()
     end
+
     local mem_in_use = mem_total - (mem_free + mem_buffers + mem_cached)
     local mem_usage_percentage = math.floor(mem_in_use / mem_total * 100)
 
@@ -378,6 +415,7 @@ end
 function thermal()
     local temperature, howmany = 0, 0
     local sensors = io.popen('sensors')
+
     if sensors then
         for line in sensors:lines() do
             if line:match(':%s+%+([.%d]+)') then
@@ -387,6 +425,7 @@ function thermal()
         end
         sensors:close()
     end
+
     temperature = temperature / howmany
 
     return temperature..'°C'..set_fg(beautiful.fg_focus, ' | ')
@@ -394,21 +433,26 @@ end
 
 -- {{{1 Timers
 
-battimer = timer { timeout = 30 }
-battimer:add_signal('timeout', function() batwidget.text = battery('BAT0') end)
-battimer:start()
+timer5min = timer { timeout = 60 * 5 }
+timer5min:add_signal('timeout', function() diskwidget.text = diskspace() end)
+timer5min:start()
+timer5min:emit_signal('timeout')
 
-memtimer = timer { timeout = 15 }
-memtimer:add_signal('timeout', function() memwidget.text = memory() end)
-memtimer:start()
+timer30sec = timer { timeout = 30 }
+timer30sec:add_signal('timeout', function() batwidget.text = battery('BAT0') end)
+timer30sec:start()
+timer30sec:emit_signal('timeout')
 
-timer10sec = timer { timeout = 10 }
-timer10sec:add_signal('timeout', function() thermalwidget.text = thermal() end)
-timer10sec:add_signal('timeout', function() cpuwidget.text = cpu() end)
+timer15sec = timer { timeout = 15 }
+timer15sec:add_signal('timeout', function() memwidget.text = memory() end)
+timer15sec:add_signal('timeout', function() thermalwidget.text = thermal() end)
+timer15sec:start()
+timer15sec:emit_signal('timeout')
+
+timer10sec = timer { timeout = 10 }timer10sec:add_signal('timeout', function() cpuwidget.text = cpu() end)
 timer10sec:start()
+timer10sec:emit_signal('timeout')
 
--- cputimer = timer { timeout = 10 }
--- cputimer:add_signal('timeout', function() cpuwidget.text = cpu() end)
--- cputimer:start()
+-- }}}
 
 io.stderr:write("\n\rAwesome loaded at "..os.date('%B %d, %H:%M').."\r\n\n")
